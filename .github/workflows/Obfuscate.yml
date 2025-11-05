@@ -1,165 +1,249 @@
-name: 从 cfnew 同步 Releases
+name: 🔄 Sync Worker File
 
 on:
-  workflow_dispatch:  # 手动触发
   schedule:
-    - cron: '0 */6 * * *'  # 每6小时自动检查一次
+    # 每天凌晨1点自动运行 (UTC时间)
+    - cron: '0 1 * * *'
+  workflow_dispatch: # 支持手动触发
+    inputs:
+      force_update:
+        description: '强制更新（忽略版本检查）'
+        required: false
+        default: false
+        type: boolean
+      skip_backup:
+        description: '跳过备份'
+        required: false
+        default: false
+        type: boolean
+
+env:
+  REPO_URL: https://api.github.com/repos/byJoey/cfnew/releases
+  WORKER_FILE: _worker.js
+  VERSION_FILE: .worker_version
+  CONFIG_FILE: .worker_config.json
 
 jobs:
-  sync-release:
+  sync-worker:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     
     steps:
-      - name: 检出仓库
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          token: ${{ secrets.GITHUB_TOKEN }}
-      
-      - name: 设置 Git 配置
-        run: |
-          git config --local user.email "github-actions[bot]@users.noreply.github.com"
-          git config --local user.name "github-actions[bot]"
-          git config --local pull.rebase false
-      
-      - name: 获取 cfnew 最新发布
-        id: get_latest
-        run: |
-          echo "正在获取最新发布信息..."
-          API_URL="https://api.github.com/repos/byJoey/cfnew/releases/latest"
-          
-          # 使用 curl 和 grep 解析 JSON（兼容性最好）
-          RESPONSE=$(curl -s -H "Accept: application/vnd.github.v3+json" "$API_URL")
-          VERSION=$(echo "$RESPONSE" | grep '"tag_name"' | sed 's/.*"tag_name": "\([^"]*\)".*/\1/')
-          ASSETS_URL=$(echo "$RESPONSE" | grep '"assets_url"' | sed 's/.*"assets_url": "\([^"]*\)".*/\1/')
-          
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
-          echo "最新版本: $VERSION"
-          
-          if [ -n "$ASSETS_URL" ]; then
-            ASSETS_JSON=$(curl -s -H "Accept: application/vnd.github.v3+json" "$ASSETS_URL")
-            DOWNLOAD_URL=$(echo "$ASSETS_JSON" | grep '"browser_download_url"' | sed 's/.*"browser_download_url": "\([^"]*\)".*/\1/' | head -1)
-            FILE_NAME=$(echo "$ASSETS_JSON" | grep '"name"' | sed 's/.*"name": "\([^"]*\)".*/\1/' | head -1)
-            
-            echo "download_url=$DOWNLOAD_URL" >> $GITHUB_OUTPUT
-            echo "file_name=$FILE_NAME" >> $GITHUB_OUTPUT
-            echo "下载文件: $FILE_NAME"
-          else
-            echo "download_url=" >> $GITHUB_OUTPUT
-            echo "file_name=" >> $GITHUB_OUTPUT
-          fi
-      
-      - name: 检查版本更新
-        id: check_version
-        run: |
-          CURRENT_VERSION=""
-          VERSION_FILE="VERSION.txt"
-          
-          if [ -f "$VERSION_FILE" ] && [ -s "$VERSION_FILE" ]; then
-            CURRENT_VERSION=$(cat "$VERSION_FILE" | tr -d '\n\r\t ' | head -1)
-            echo "当前版本: $CURRENT_VERSION"
-          else
-            echo "未找到版本记录文件或文件为空"
-          fi
-          
-          NEW_VERSION="${{ steps.get_latest.outputs.version }}"
-          
-          if [ -z "$NEW_VERSION" ]; then
-            echo "错误：无法获取最新版本号"
-            exit 1
-          fi
-          
-          if [ "$CURRENT_VERSION" = "$NEW_VERSION" ]; then
-            echo "版本相同，无需更新"
-            echo "need_update=false" >> $GITHUB_OUTPUT
-          else
-            if [ -z "$CURRENT_VERSION" ]; then
-              echo "首次运行，将创建版本记录"
-            else
-              echo "发现新版本: $CURRENT_VERSION -> $NEW_VERSION"
-            fi
-            echo "need_update=true" >> $GITHUB_OUTPUT
-          fi
-          
-          echo "current_version=$CURRENT_VERSION" >> $GITHUB_OUTPUT
-          echo "latest_version=$NEW_VERSION" >> $GITHUB_OUTPUT
-      
-      - name: 下载新版本文件
-        if: steps.check_version.outputs.need_update == 'true' && steps.get_latest.outputs.download_url != ''
-        run: |
-          DOWNLOAD_URL="${{ steps.get_latest.outputs.download_url }}"
-          FILE_NAME="${{ steps.get_latest.outputs.file_name }}"
-          VERSION="${{ steps.get_latest.outputs.version }}"
-          
-          echo "正在下载: $FILE_NAME"
-          echo "来自: $DOWNLOAD_URL"
-          
-          # 下载文件
-          curl -L -o "$FILE_NAME" "$DOWNLOAD_URL"
-          
-          # 验证下载
-          if [ ! -f "$FILE_NAME" ]; then
-            echo "错误：文件下载失败"
-            exit 1
-          fi
-          
-          echo "下载成功: $(ls -la "$FILE_NAME")"
-          
-          # 更新版本记录
-          echo "$VERSION" > VERSION.txt
-          echo "版本记录已更新: $VERSION"
-      
-      - name: 提交更改
-        if: steps.check_version.outputs.need_update == 'true'
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          # 检查是否有变更
-          if git diff --quiet && git diff --staged --quiet; then
-            echo "没有检测到文件变更"
-            exit 0
-          fi
-          
-          echo "检测到以下变更:"
-          git status
-          git diff --name-status
-          
-          # 添加所有变更
-          git add -A
-          
-          # 提交变更
-          git commit -m "🔔 同步: 更新到 cfnew ${{ steps.get_latest.outputs.version }}"
-          
-          # 推送变更（使用 token）
-          echo "正在推送到仓库..."
-          git push "https://$GITHUB_ACTOR:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" HEAD:${GITHUB_REF#refs/heads/}
-          
-          echo "更改已成功提交并推送"
-      
-      - name: 生成摘要报告
-        run: |
-          echo "## 🔄 同步完成" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "| 项目 | 详情 |" >> $GITHUB_STEP_SUMMARY
-          echo "|------|------|" >> $GITHUB_STEP_SUMMARY
-          echo "| **源仓库** | byJoey/cfnew |" >> $GITHUB_STEP_SUMMARY
-          echo "| **最新版本** | ${{ steps.get_latest.outputs.version }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| **当前版本** | ${{ steps.check_version.outputs.current_version || '无' }} |" >> $GITHUB_STEP_SUMMARY
-          
-          if [ "${{ steps.check_version.outputs.need_update }}" = "true" ]; then
-            echo "| **状态** | ✅ 已更新到新版本 |" >> $GITHUB_STEP_SUMMARY
-            if [ "${{ steps.get_latest.outputs.file_name }}" != "" ]; then
-              echo "| **下载文件** | ${{ steps.get_latest.outputs.file_name }} |" >> $GITHUB_STEP_SUMMARY
-            fi
-          else
-            echo "| **状态** | ⏭️ 已是最新版本 |" >> $GITHUB_STEP_SUMMARY
-          fi
-          
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**更新时间**: $(date -u '+%Y-%m-%d %H:%M:%S UTC')" >> $GITHUB_STEP_SUMMARY
-          
-          # 添加调试信息
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### 🔧 调试信息" >> $GITHUB_STEP_SUMMARY
-          echo "- 工作流运行ID: ${{ github.run_id }}" >> $GITHUB_STEP_SUMMARY
-          echo "- 触发方式: ${{ github.event_name }}" >> $GITHUB_STEP_SUMMARY
+    - name: 🛎️ Checkout repository
+      uses: actions/checkout@v4
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
+        fetch-depth: 0
+        
+    - name: 🏗️ Set up Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        cache: 'npm'
+        
+    - name: 📦 Install dependencies
+      run: |
+        npm install axios
+        mkdir -p scripts
+        
+    - name: 📝 Create version manager script
+      run: |
+        cat > scripts/version-manager.js << 'EOF'
+        <上面完整的 version-manager.js 内容>
+        EOF
+        
+    - name: ⚙️ Initialize version manager
+      id: init
+      run: |
+        node -e "
+        const VersionManager = require('./scripts/version-manager');
+        const manager = new VersionManager();
+        manager.initialize();
+        console.log('Version manager initialized');
+        "
+        
+    - name: 📋 Get current version info
+      id: current_info
+      run: |
+        CURRENT_INFO=$(node -e "
+        const VersionManager = require('./scripts/version-manager');
+        const manager = new VersionManager();
+        const info = {
+            version: manager.getCurrentVersion(),
+            worker_hash: manager.getFileHash('$WORKER_FILE'),
+            worker_exists: require('fs').existsSync('$WORKER_FILE')
+        };
+        console.log(JSON.stringify(info));
+        ")
+        
+        echo "current_info=$CURRENT_INFO" >> $GITHUB_OUTPUT
+        echo "📄 Current version info: $CURRENT_INFO"
+        
+    - name: 🌐 Fetch latest release information
+      id: fetch_release
+      run: |
+        node -e "
+        const axios = require('axios');
+        
+        async function fetchLatestRelease() {
+            try {
+                const response = await axios.get('$REPO_URL/latest', {
+                    headers: {
+                        'User-Agent': 'GitHub-Actions-Worker-Sync'
+                    },
+                    timeout: 10000
+                });
+                
+                const release = response.data;
+                const latestVersion = release.tag_name || release.name;
+                const workerAsset = release.assets.find(asset => asset.name === '_worker.js');
+                
+                if (!workerAsset) {
+                    throw new Error('_worker.js asset not found in latest release');
+                }
+                
+                const result = {
+                    version: latestVersion,
+                    download_url: workerAsset.browser_download_url,
+                    download_size: workerAsset.size,
+                    published_at: release.published_at,
+                    release_name: release.name,
+                    release_body: release.body ? release.body.substring(0, 500) : ''
+                };
+                
+                console.log(JSON.stringify(result));
+                
+            } catch (error) {
+                console.error('Error fetching release:', error.message);
+                process.exit(1);
+            }
+        }
+        
+        fetchLatestRelease();
+        " > release_info.json
+        
+        RELEASE_INFO=$(cat release_info.json)
+        echo "release_info=$RELEASE_INFO" >> $GITHUB_OUTPUT
+        echo "🎯 Latest release info: $RELEASE_INFO"
+        
+    - name: 🔍 Smart version check
+      id: version_check
+      run: |
+        CURRENT_VERSION=$(echo '${{ steps.current_info.outputs.current_info }}' | jq -r '.version // ""')
+        LATEST_VERSION=$(echo '${{ steps.fetch_release.outputs.release_info }}' | jq -r '.version')
+        FORCE_UPDATE=${{ github.event.inputs.force_update }}
+        
+        CHECK_RESULT=$(node -e "
+        const VersionManager = require('./scripts/version-manager');
+        const manager = new VersionManager();
+        const result = manager.shouldUpdate('$CURRENT_VERSION', '$LATEST_VERSION', $FORCE_UPDATE);
+        console.log(JSON.stringify(result));
+        ")
+        
+        echo "check_result=$CHECK_RESULT" >> $GITHUB_OUTPUT
+        echo "🔍 Version check result: $CHECK_RESULT"
+        
+    - name: 💾 Create backup before update
+      if: steps.version_check.outputs.check_result != '' && fromJSON(steps.version_check.outputs.check_result).update && !github.event.inputs.skip_backup
+      run: |
+        CURRENT_VERSION=$(echo '${{ steps.current_info.outputs.current_info }}' | jq -r '.version // "pre-update"')
+        node -e "
+        const VersionManager = require('./scripts/version-manager');
+        const manager = new VersionManager();
+        const backupPath = manager.createBackup('$CURRENT_VERSION');
+        if (backupPath) {
+            console.log('Backup created: ' + backupPath);
+        }
+        "
+        
+    - name: 📥 Download latest worker file
+      if: steps.version_check.outputs.check_result != '' && fromJSON(steps.version_check.outputs.check_result).update
+      run: |
+        DOWNLOAD_URL=$(echo '${{ steps.fetch_release.outputs.release_info }}' | jq -r '.download_url')
+        EXPECTED_SIZE=$(echo '${{ steps.fetch_release.outputs.release_info }}' | jq -r '.download_size')
+        
+        echo "📥 Downloading from: $DOWNLOAD_URL"
+        
+        # 下载文件
+        curl -s -L -o "$WORKER_FILE.tmp" "$DOWNLOAD_URL" \
+          -H "User-Agent: GitHub-Actions-Worker-Sync" \
+          -H "Accept: application/octet-stream"
+        
+        # 验证下载的文件
+        node -e "
+        const VersionManager = require('./scripts/version-manager');
+        const manager = new VersionManager();
+        try {
+            manager.validateDownloadedFile('$WORKER_FILE.tmp', $EXPECTED_SIZE);
+            console.log('✅ File validation passed');
+            // 重命名临时文件
+            require('fs').renameSync('$WORKER_FILE.tmp', '$WORKER_FILE');
+        } catch (error) {
+            console.error('❌ File validation failed:', error.message);
+            process.exit(1);
+        }
+        "
+        
+    - name: 🏷️ Update version file
+      if: steps.version_check.outputs.check_result != '' && fromJSON(steps.version_check.outputs.check_result).update
+      run: |
+        LATEST_VERSION=$(echo '${{ steps.fetch_release.outputs.release_info }}' | jq -r '.version')
+        node -e "
+        const VersionManager = require('./scripts/version-manager');
+        const manager = new VersionManager();
+        manager.saveVersion('$LATEST_VERSION');
+        console.log('✅ Version updated to: $LATEST_VERSION');
+        "
+        
+    - name: 📊 Generate update report
+      if: always()
+      run: |
+        node -e "
+        const VersionManager = require('./scripts/version-manager');
+        const manager = new VersionManager();
+        
+        const report = manager.generateUpdateReport({
+            check_result: ${{ steps.version_check.outputs.check_result || 'null' }},
+            current_info: ${{ steps.current_info.outputs.current_info || 'null' }},
+            release_info: ${{ steps.fetch_release.outputs.release_info || 'null' }},
+            update_performed: ${{ steps.version_check.outputs.check_result != '' && fromJSON(steps.version_check.outputs.check_result).update }}
+        }, 'sync_worker');
+        
+        console.log('📊 Update report generated');
+        "
+        
+    - name: 💬 Commit and push changes
+      if: steps.version_check.outputs.check_result != '' && fromJSON(steps.version_check.outputs.check_result).update
+      run: |
+        LATEST_VERSION=$(echo '${{ steps.fetch_release.outputs.release_info }}' | jq -r '.version')
+        
+        git config --local user.email "action@github.com"
+        git config --local user.name "GitHub Action"
+        
+        git add $WORKER_FILE $VERSION_FILE $CONFIG_FILE
+        git commit -m "🔧 chore: update worker file to v$LATEST_VERSION" \
+                   -m "Auto-updated worker file to version $LATEST_VERSION"
+        
+        git push
+        echo "✅ Changes committed and pushed"
+        
+    - name: 🎉 Update successful
+      if: steps.version_check.outputs.check_result != '' && fromJSON(steps.version_check.outputs.check_result).update
+      run: |
+        LATEST_VERSION=$(echo '${{ steps.fetch_release.outputs.release_info }}' | jq -r '.version')
+        echo "🎉 Successfully updated to version: $LATEST_VERSION"
+        echo "::notice title=Worker Updated::Worker file has been updated to version $LATEST_VERSION"
+        
+    - name: ℹ️ No update needed
+      if: steps.version_check.outputs.check_result != '' && !fromJSON(steps.version_check.outputs.check_result).update
+      run: |
+        CURRENT_VERSION=$(echo '${{ steps.current_info.outputs.current_info }}' | jq -r '.version // "unknown"')
+        REASON=$(echo '${{ steps.version_check.outputs.check_result }}' | jq -r '.reason')
+        echo "ℹ️ No update needed. Current version: $CURRENT_VERSION (Reason: $REASON)"
+        echo "::notice title=No Update Needed::Worker file is already up to date (v$CURRENT_VERSION)"
+        
+    - name: ⚠️ Update requires approval
+      if: steps.version_check.outputs.check_result != '' && fromJSON(steps.version_check.outputs.check_result).requires_approval
+      run: |
+        echo "⚠️ This update requires manual approval due to version change type"
+        echo "::warning title=Approval Required::This update requires manual approval. Please review the changes."
