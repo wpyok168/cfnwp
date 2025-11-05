@@ -30,7 +30,6 @@ jobs:
             LOCAL_VERSION=""
           fi
           echo "LOCAL_VERSION=$LOCAL_VERSION" >> $GITHUB_ENV
-
       - name: 获取最新 Release 信息
         id: get_release
         run: |
@@ -39,20 +38,14 @@ jobs:
           RESPONSE=$(curl -s "$API_URL")
           LATEST_RELEASE=$(echo "$RESPONSE" | jq -r '.[0]')
           TAG_NAME=$(echo "$LATEST_RELEASE" | jq -r '.tag_name')
-          DOWNLOAD_URL=$(echo "$LATEST_RELEASE" | jq -r '.assets[] | select(.name == "_worker.js") | .browser_download_url')
-          
+          DOWNLOAD_URL=$(echo "$LATEST_RELEASE" | jq -r '.assets[] | select(.name == "Pages.zip") | .browser_download_url')
           if [ -z "$DOWNLOAD_URL" ] || [ "$DOWNLOAD_URL" == "null" ]; then
-            echo -e "\033[31m未找到 _worker.js，尝试从 release 源码中查找...\033[0m"
-            # 如果没有找到 _worker.js 资源文件，尝试从源码压缩包中获取
-            TARBALL_URL=$(echo "$LATEST_RELEASE" | jq -r '.tarball_url')
-            echo "TARBALL_URL=$TARBALL_URL" >> $GITHUB_ENV
-            DOWNLOAD_URL="tarball"
+            echo -e "\033[31m未找到 Pages.zip，退出！\033[0m"
+            exit 1
           fi
-          
           echo "最新版本号: $TAG_NAME"
           echo "DOWNLOAD_URL=$DOWNLOAD_URL" >> $GITHUB_ENV
           echo "TAG_NAME=$TAG_NAME" >> $GITHUB_ENV
-
       - name: 判断是否需要更新
         id: check_update
         run: |
@@ -64,45 +57,23 @@ jobs:
             echo -e "\033[33m发现新版本，需要更新！\033[0m"
             echo "UPDATE_NEEDED=true" >> $GITHUB_ENV
           fi
-
-      - name: 下载 _worker.js 文件
-        if: env.UPDATE_NEEDED == 'true' && env.DOWNLOAD_URL != 'tarball'
-        run: |
-          echo -e "\033[34m[下载 _worker.js 文件]\033[0m"
-          wget -O _worker.js "$DOWNLOAD_URL"
-          echo -e "\033[32m_worker.js 下载完成\033[0m"
-
-      - name: 从源码压缩包提取 _worker.js
-        if: env.UPDATE_NEEDED == 'true' && env.DOWNLOAD_URL == 'tarball'
-        run: |
-          echo -e "\033[34m[从源码压缩包提取 _worker.js]\033[0m"
-          # 下载源码压缩包
-          wget -O source.tar.gz "$TARBALL_URL"
-          # 解压并查找 _worker.js
-          tar -xzf source.tar.gz
-          # 在解压后的目录中查找 _worker.js
-          find . -name "_worker.js" -exec cp {} ./ \;
-          # 清理临时文件
-          rm -rf byJoey-cfnew-*
-          rm source.tar.gz
-          echo -e "\033[32m_worker.js 提取完成\033[0m"
-
-      - name: 更新版本号
+      - name: 如果需要，清理旧文件并下载新版本
         if: env.UPDATE_NEEDED == 'true'
         run: |
+          echo -e "\033[34m[清理旧文件]\033[0m"
+          rm -rf ./*
+          echo -e "\033[34m[下载最新 Pages.zip]\033[0m"
+          wget -O Pages.zip "$DOWNLOAD_URL"
+          echo -e "\033[34m[解压 Pages.zip]\033[0m"
+          unzip Pages.zip
+          echo -e "\033[34m[删除 Pages.zip]\033[0m"
+          rm Pages.zip
           echo -e "\033[34m[记录新版本号]\033[0m"
           echo "$TAG_NAME" > version.txt
-          echo -e "\033[32m版本号已更新为: $TAG_NAME\033[0m"
-
-      - name: 显示文件列表
-        if: env.UPDATE_NEEDED == 'true'
-        run: |
-          echo -e "\033[34m[当前文件列表]\033[0m"
-          ls -la
-
       - name: 提交更改
         if: env.UPDATE_NEEDED == 'true'
         uses: stefanzweifel/git-auto-commit-action@v5
         with:
           commit_message: "🔄 自动同步最新 Worker 版本：${{ env.TAG_NAME }}"
           commit_author: "github-actions[bot] <github-actions[bot]@users.noreply.github.com>"
+          push_options: --force
