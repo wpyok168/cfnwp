@@ -37,7 +37,7 @@ jobs:
             cat extra_versions.json
           else
             echo "没有额外文件版本信息。"
-            echo '{"明文源吗":"","少年你相信光吗":"","snippets":""}' > extra_versions.json
+            echo '{"plain_source":"","youth_believe":"","snippets":""}' > extra_versions.json
           fi
           
           echo "MAIN_VERSION=$MAIN_VERSION" >> $GITHUB_ENV
@@ -65,20 +65,20 @@ jobs:
           echo -e "\033[34m[获取额外文件最新版本信息]\033[0m"
           
           # 获取额外文件的 ETag (作为版本标识)
-          明文源吗_ETAG=$(curl -sI "https://raw.githubusercontent.com/byJoey/cfnew/refs/heads/main/%E6%98%8E%E6%96%87%E6%BA%90%E5%90%97" | grep -i "etag:" | cut -d'"' -f2 || echo "")
-          少年你相信光吗_ETAG=$(curl -sI "https://raw.githubusercontent.com/byJoey/cfnew/refs/heads/main/%E5%B0%91%E5%B9%B4%E4%BD%A0%E7%9B%B8%E4%BF%A1%E5%85%89%E5%90%97" | grep -i "etag:" | cut -d'"' -f2 || echo "")
-          snippets_ETAG=$(curl -sI "https://raw.githubusercontent.com/byJoey/cfnew/refs/heads/main/snippets" | grep -i "etag:" | cut -d'"' -f2 || echo "")
+          PLAIN_SOURCE_ETAG=$(curl -sI "https://raw.githubusercontent.com/byJoey/cfnew/refs/heads/main/%E6%98%8E%E6%96%87%E6%BA%90%E5%90%97" | grep -i "etag:" | cut -d'"' -f2 || echo "")
+          YOUTH_BELIEVE_ETAG=$(curl -sI "https://raw.githubusercontent.com/byJoey/cfnew/refs/heads/main/%E5%B0%91%E5%B9%B4%E4%BD%A0%E7%9B%B8%E4%BF%A1%E5%85%89%E5%90%97" | grep -i "etag:" | cut -d'"' -f2 || echo "")
+          SNIPPETS_ETAG=$(curl -sI "https://raw.githubusercontent.com/byJoey/cfnew/refs/heads/main/snippets" | grep -i "etag:" | cut -d'"' -f2 || echo "")
           
-          echo "明文源吗 ETag: $明文源吗_ETAG"
-          echo "少年你相信光吗 ETag: $少年你相信光吗_ETAG"
-          echo "snippets ETag: $snippets_ETAG"
+          echo "明文源吗 ETag: $PLAIN_SOURCE_ETAG"
+          echo "少年你相信光吗 ETag: $YOUTH_BELIEVE_ETAG"
+          echo "snippets ETag: $SNIPPETS_ETAG"
           
           # 创建最新版本信息 JSON
           cat > latest_extra_versions.json << EOF
           {
-            "明文源吗": "$明文源吗_ETAG",
-            "少年你相信光吗": "$少年你相信光吗_ETAG", 
-            "snippets": "$snippets_ETAG"
+            "plain_source": "$PLAIN_SOURCE_ETAG",
+            "youth_believe": "$YOUTH_BELIEVE_ETAG", 
+            "snippets": "$SNIPPETS_ETAG"
           }
           EOF
           
@@ -92,15 +92,15 @@ jobs:
           
           # 读取当前版本信息
           CURRENT_EXTRA_VERSIONS=$(cat extra_versions.json)
-          明文源吗_CURRENT=$(echo "$CURRENT_EXTRA_VERSIONS" | jq -r '.["明文源吗"]')
-          少年你相信光吗_CURRENT=$(echo "$CURRENT_EXTRA_VERSIONS" | jq -r '.["少年你相信光吗"]')
-          snippets_CURRENT=$(echo "$CURRENT_EXTRA_VERSIONS" | jq -r '.["snippets"]')
+          PLAIN_SOURCE_CURRENT=$(echo "$CURRENT_EXTRA_VERSIONS" | jq -r '.plain_source')
+          YOUTH_BELIEVE_CURRENT=$(echo "$CURRENT_EXTRA_VERSIONS" | jq -r '.youth_believe')
+          SNIPPETS_CURRENT=$(echo "$CURRENT_EXTRA_VERSIONS" | jq -r '.snippets')
           
           # 读取最新版本信息
           LATEST_EXTRA_VERSIONS=$(cat latest_extra_versions.json)
-          明文源吗_LATEST=$(echo "$LATEST_EXTRA_VERSIONS" | jq -r '.["明文源吗"]')
-          少年你相信光吗_LATEST=$(echo "$LATEST_EXTRA_VERSIONS" | jq -r '.["少年你相信光吗"]')
-          snippets_LATEST=$(echo "$LATEST_EXTRA_VERSIONS" | jq -r '.["snippets"]')
+          PLAIN_SOURCE_LATEST=$(echo "$LATEST_EXTRA_VERSIONS" | jq -r '.plain_source')
+          YOUTH_BELIEVE_LATEST=$(echo "$LATEST_EXTRA_VERSIONS" | jq -r '.youth_believe')
+          SNIPPETS_LATEST=$(echo "$LATEST_EXTRA_VERSIONS" | jq -r '.snippets')
           
           # 判断主版本是否需要更新
           if [ "$MAIN_VERSION" = "$TAG_NAME" ]; then
@@ -112,39 +112,39 @@ jobs:
           fi
           
           # 判断各个额外文件是否需要更新
-          明文源吗_UPDATE_NEEDED=false
-          少年你相信光吗_UPDATE_NEEDED=false
-          snippets_UPDATE_NEEDED=false
+          PLAIN_SOURCE_UPDATE_NEEDED=false
+          YOUTH_BELIEVE_UPDATE_NEEDED=false
+          SNIPPETS_UPDATE_NEEDED=false
           
-          if [ "$明文源吗_CURRENT" != "$明文源吗_LATEST" ]; then
+          if [ "$PLAIN_SOURCE_CURRENT" != "$PLAIN_SOURCE_LATEST" ]; then
             echo -e "\033[33m明文源吗有更新！\033[0m"
-            明文源吗_UPDATE_NEEDED=true
+            PLAIN_SOURCE_UPDATE_NEEDED=true
           else
             echo -e "\033[32m明文源吗无更新。\033[0m"
           fi
           
-          if [ "$少年你相信光吗_CURRENT" != "$少年你相信光吗_LATEST" ]; then
+          if [ "$YOUTH_BELIEVE_CURRENT" != "$YOUTH_BELIEVE_LATEST" ]; then
             echo -e "\033[33m少年你相信光吗有更新！\033[0m"
-            少年你相信光吗_UPDATE_NEEDED=true
+            YOUTH_BELIEVE_UPDATE_NEEDED=true
           else
             echo -e "\033[32m少年你相信光吗无更新。\033[0m"
           fi
           
-          if [ "$snippets_CURRENT" != "$snippets_LATEST" ]; then
+          if [ "$SNIPPETS_CURRENT" != "$SNIPPETS_LATEST" ]; then
             echo -e "\033[33msnippets有更新！\033[0m"
-            snippets_UPDATE_NEEDED=true
+            SNIPPETS_UPDATE_NEEDED=true
           else
             echo -e "\033[32msnippets无更新。\033[0m"
           fi
           
           # 设置环境变量
           echo "MAIN_UPDATE_NEEDED=$MAIN_UPDATE_NEEDED" >> $GITHUB_ENV
-          echo "明文源吗_UPDATE_NEEDED=$明文源吗_UPDATE_NEEDED" >> $GITHUB_ENV
-          echo "少年你相信光吗_UPDATE_NEEDED=$少年你相信光吗_UPDATE_NEEDED" >> $GITHUB_ENV
-          echo "snippets_UPDATE_NEEDED=$snippets_UPDATE_NEEDED" >> $GITHUB_ENV
+          echo "PLAIN_SOURCE_UPDATE_NEEDED=$PLAIN_SOURCE_UPDATE_NEEDED" >> $GITHUB_ENV
+          echo "YOUTH_BELIEVE_UPDATE_NEEDED=$YOUTH_BELIEVE_UPDATE_NEEDED" >> $GITHUB_ENV
+          echo "SNIPPETS_UPDATE_NEEDED=$SNIPPETS_UPDATE_NEEDED" >> $GITHUB_ENV
           
           # 判断是否有任何更新
-          if [ "$MAIN_UPDATE_NEEDED" = "true" ] || [ "$明文源吗_UPDATE_NEEDED" = "true" ] || [ "$少年你相信光吗_UPDATE_NEEDED" = "true" ] || [ "$snippets_UPDATE_NEEDED" = "true" ]; then
+          if [ "$MAIN_UPDATE_NEEDED" = "true" ] || [ "$PLAIN_SOURCE_UPDATE_NEEDED" = "true" ] || [ "$YOUTH_BELIEVE_UPDATE_NEEDED" = "true" ] || [ "$SNIPPETS_UPDATE_NEEDED" = "true" ]; then
             echo "UPDATE_NEEDED=true" >> $GITHUB_ENV
           else
             echo "UPDATE_NEEDED=false" >> $GITHUB_ENV
@@ -169,7 +169,7 @@ jobs:
           echo -e "\033[34m[更新额外文件]\033[0m"
           
           # 更新明文源吗
-          if [ "$明文源吗_UPDATE_NEEDED" = "true" ]; then
+          if [ "$PLAIN_SOURCE_UPDATE_NEEDED" = "true" ]; then
             echo -e "\033[33m下载更新：明文源吗\033[0m"
             wget -O "明文源吗" "https://raw.githubusercontent.com/byJoey/cfnew/refs/heads/main/%E6%98%8E%E6%96%87%E6%BA%90%E5%90%97"
           else
@@ -177,7 +177,7 @@ jobs:
           fi
           
           # 更新少年你相信光吗
-          if [ "$少年你相信光吗_UPDATE_NEEDED" = "true" ]; then
+          if [ "$YOUTH_BELIEVE_UPDATE_NEEDED" = "true" ]; then
             echo -e "\033[33m下载更新：少年你相信光吗\033[0m"
             wget -O "少年你相信光吗" "https://raw.githubusercontent.com/byJoey/cfnew/refs/heads/main/%E5%B0%91%E5%B9%B4%E4%BD%A0%E7%9B%B8%E4%BF%A1%E5%85%89%E5%90%97"
           else
@@ -185,7 +185,7 @@ jobs:
           fi
           
           # 更新snippets
-          if [ "$snippets_UPDATE_NEEDED" = "true" ]; then
+          if [ "$SNIPPETS_UPDATE_NEEDED" = "true" ]; then
             echo -e "\033[33m下载更新：snippets\033[0m"
             wget -O "snippets" "https://raw.githubusercontent.com/byJoey/cfnew/refs/heads/main/snippets"
           else
@@ -204,7 +204,7 @@ jobs:
           fi
           
           # 记录额外文件版本
-          if [ "$明文源吗_UPDATE_NEEDED" = "true" ] || [ "$少年你相信光吗_UPDATE_NEEDED" = "true" ] || [ "$snippets_UPDATE_NEEDED" = "true" ]; then
+          if [ "$PLAIN_SOURCE_UPDATE_NEEDED" = "true" ] || [ "$YOUTH_BELIEVE_UPDATE_NEEDED" = "true" ] || [ "$SNIPPETS_UPDATE_NEEDED" = "true" ]; then
             cp latest_extra_versions.json extra_versions.json
             echo "已记录额外文件版本信息:"
             cat extra_versions.json
@@ -217,8 +217,8 @@ jobs:
           commit_message: |-
             🔄 自动同步更新：
             📦 主版本：${{ env.MAIN_UPDATE_NEEDED == 'true' && env.TAG_NAME || '无更新' }}
-            📄 明文源吗：${{ env.明文源吗_UPDATE_NEEDED == 'true' && '已更新' || '无更新' }}
-            📄 少年你相信光吗：${{ env.少年你相信光吗_UPDATE_NEEDED == 'true' && '已更新' || '无更新' }}
-            📄 snippets：${{ env.snippets_UPDATE_NEEDED == 'true' && '已更新' || '无更新' }}
+            📄 明文源吗：${{ env.PLAIN_SOURCE_UPDATE_NEEDED == 'true' && '已更新' || '无更新' }}
+            📄 少年你相信光吗：${{ env.YOUTH_BELIEVE_UPDATE_NEEDED == 'true' && '已更新' || '无更新' }}
+            📄 snippets：${{ env.SNIPPETS_UPDATE_NEEDED == 'true' && '已更新' || '无更新' }}
           commit_author: "github-actions[bot] <github-actions[bot]@users.noreply.github.com>"
           push_options: --force
